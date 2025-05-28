@@ -14,7 +14,7 @@ type ImageType = {
 const urlEndpoint = process.env.NEXT_PUBLIC_URL_ENDPOINT;
 
 if (!urlEndpoint) {
-  throw new Error('Error: Please add urlEndpoint to .env or .env.local')
+  throw new Error('Error: Please add urlEndpoint to .env or .env')
 }
 
 const Image = ({ path, w, h, alt, className, tr }: ImageType) => {

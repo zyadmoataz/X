@@ -11,7 +11,7 @@ const UserPage = () => {
         <Link href="/">
           <Image path="icons/back.svg" alt="back" w={24} h={24} />
         </Link>
-        <h1 className="font-bold text-lg">Lama Dev</h1>
+        <h1 className="font-bold text-lg">Zyad Moataz</h1>
       </div>
       {/* INFO */}
       <div className="">
@@ -45,10 +45,10 @@ const UserPage = () => {
         <div className="p-4 flex flex-col gap-2">
           {/* USERNAME & HANDLE */}
           <div className="">
-            <h1 className="text-2xl font-bold">Lama Dev</h1>
-            <span className="text-textGray text-sm">@lamaWebDev</span>
+            <h1 className="text-2xl font-bold">Zyad Moataz</h1>
+            <span className="text-textGray text-sm">@zyadDev</span>
           </div>
-          <p>Lama Dev Youtube Channel</p>
+          <p>Zyad Dev Youtube Channel</p>
           {/* JOB & LOCATION & DATE */}
           <div className="flex gap-4 text-textGray text-[15px]">
             <div className="flex items-center gap-2">

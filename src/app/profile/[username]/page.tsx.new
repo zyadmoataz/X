@@ -1,0 +1,353 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useParams } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/context/AuthContext';
+import Image from '@/components/Image';
+import Post from '@/components/Post';
+import Link from 'next/link';
+
+interface ProfileData {
+  id: string;
+  username: string;
+  name: string;
+  bio?: string;
+  avatar_url?: string;
+  banner_url?: string;
+  followers_count?: number;
+  following_count?: number;
+}
+
+export default function ProfilePage() {
+  const params = useParams();
+  const username = params.username as string;
+  const { user } = useAuth();
+  
+  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [posts, setPosts] = useState<any[]>([]);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followersCount, setFollowersCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch profile data and posts
+  useEffect(() => {
+    const fetchProfileData = async () => {
+      if (!username) return;
+      
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        // Fetch user profile by username
+        console.log('Fetching profile for username:', username);
+        
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('username', username)
+          .single();
+        
+        if (userError) {
+          console.error('Error fetching user:', userError);
+          setError('Failed to load profile');
+          setIsLoading(false);
+          return;
+        }
+        
+        if (!userData) {
+          setError('User not found');
+          setIsLoading(false);
+          return;
+        }
+        
+        console.log('User data:', userData);
+        setProfile(userData);
+        
+        // Fetch followers count
+        const { count: followers, error: followersError } = await supabase
+          .from('follows')
+          .select('*', { count: 'exact', head: true })
+          .eq('following_id', userData.id);
+        
+        if (followersError) {
+          console.error('Error fetching followers count:', followersError);
+        } else {
+          setFollowersCount(followers || 0);
+        }
+        
+        // Fetch following count
+        const { count: following, error: followingError } = await supabase
+          .from('follows')
+          .select('*', { count: 'exact', head: true })
+          .eq('follower_id', userData.id);
+        
+        if (followingError) {
+          console.error('Error fetching following count:', followingError);
+        } else {
+          setFollowingCount(following || 0);
+        }
+        
+        // Check if current user is following this profile
+        if (user) {
+          const { data: followData, error: followError } = await supabase
+            .from('follows')
+            .select('*')
+            .eq('follower_id', user.id)
+            .eq('following_id', userData.id)
+            .single();
+          
+          if (followError && followError.code !== 'PGRST116') {
+            console.error('Error checking follow status:', followError);
+          }
+          
+          setIsFollowing(!!followData);
+        }
+        
+        // Fetch user's posts
+        const { data: postsData, error: postsError } = await supabase
+          .from('posts')
+          .select(`
+            *,
+            users!posts_user_id_fkey(id, username, name, avatar_url)
+          `)
+          .eq('user_id', userData.id)
+          .order('created_at', { ascending: false });
+        
+        if (postsError) {
+          console.error('Error fetching posts:', postsError);
+        } else {
+          console.log('User posts:', postsData);
+          setPosts(postsData || []);
+        }
+      } catch (err) {
+        console.error('Error in profile fetch:', err);
+        setError('An error occurred while loading profile');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchProfileData();
+  }, [username, user]);
+  
+  // Handle follow/unfollow actions
+  const handleFollowToggle = async () => {
+    if (!user || !profile) {
+      alert('You need to be logged in to follow users');
+      return;
+    }
+    
+    try {
+      if (isFollowing) {
+        // Unfollow
+        const { error } = await supabase
+          .from('follows')
+          .delete()
+          .eq('follower_id', user.id)
+          .eq('following_id', profile.id);
+        
+        if (error) throw error;
+        
+        setIsFollowing(false);
+        setFollowersCount(prev => Math.max(0, prev - 1));
+        
+        // Create notification for unfollow
+        await supabase
+          .from('notifications')
+          .insert({
+            user_id: profile.id,
+            actor_id: user.id,
+            type: 'unfollow',
+            content: `${user.username} unfollowed you`
+          });
+      } else {
+        // Follow
+        const { error } = await supabase
+          .from('follows')
+          .insert({
+            follower_id: user.id,
+            following_id: profile.id
+          });
+        
+        if (error) throw error;
+        
+        setIsFollowing(true);
+        setFollowersCount(prev => prev + 1);
+        
+        // Create notification for follow
+        await supabase
+          .from('notifications')
+          .insert({
+            user_id: profile.id,
+            actor_id: user.id,
+            type: 'follow',
+            content: `${user.username} followed you`
+          });
+      }
+    } catch (error) {
+      console.error('Error toggling follow:', error);
+      alert('Failed to update follow status');
+    }
+  };
+  
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+  
+  // Show error state
+  if (error || !profile) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-4">
+        <Image 
+          path="/general/not-found.svg" 
+          alt="Error" 
+          w={150} 
+          h={150} 
+          className="mb-6 opacity-50" 
+        />
+        <h1 className="text-2xl font-bold mb-2">
+          {error || 'User not found'}
+        </h1>
+        <p className="text-textGray mb-6">
+          The user you're looking for doesn't seem to exist.
+        </p>
+        <Link 
+          href="/" 
+          className="px-6 py-2 bg-blue-500 rounded-full font-bold"
+        >
+          Return Home
+        </Link>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="min-h-screen">
+      {/* Banner */}
+      <div className="h-48 relative bg-gray-800">
+        {profile.banner_url && (
+          <div className="absolute inset-0">
+            <Image 
+              path={profile.banner_url} 
+              alt="Profile banner" 
+              w={1500} 
+              h={500} 
+              className="w-full h-full object-cover" 
+            />
+          </div>
+        )}
+      </div>
+      
+      {/* Profile header */}
+      <div className="relative px-4 pb-4 border-b border-borderGray">
+        {/* Avatar */}
+        <div className="relative -mt-16 mb-3">
+          <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-black">
+            <Image 
+              path={profile.avatar_url || "/general/avatar.png"} 
+              alt={profile.name} 
+              w={128} 
+              h={128} 
+              className="w-full h-full object-cover"
+              tr={true}
+            />
+          </div>
+        </div>
+        
+        {/* Action buttons */}
+        <div className="flex justify-end mb-4">
+          {user && user.id !== profile.id && (
+            <button
+              onClick={handleFollowToggle}
+              className={`px-5 py-2 rounded-full font-bold ${
+                isFollowing
+                  ? 'bg-transparent border border-white text-white hover:bg-gray-800'
+                  : 'bg-white text-black hover:bg-gray-200'
+              }`}
+            >
+              {isFollowing ? 'Following' : 'Follow'}
+            </button>
+          )}
+        </div>
+        
+        {/* User info */}
+        <div className="mb-4">
+          <h1 className="text-xl font-bold">{profile.name}</h1>
+          <p className="text-textGray">@{profile.username}</p>
+        </div>
+        
+        {/* Bio */}
+        {profile.bio && (
+          <div className="mb-4">
+            <p>{profile.bio}</p>
+          </div>
+        )}
+        
+        {/* Stats */}
+        <div className="flex gap-4 text-sm">
+          <div className="flex items-center gap-1">
+            <span className="font-bold">{followingCount}</span>
+            <span className="text-textGray">Following</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="font-bold">{followersCount}</span>
+            <span className="text-textGray">Followers</span>
+          </div>
+        </div>
+      </div>
+      
+      {/* Tabs */}
+      <div className="border-b border-borderGray">
+        <div className="flex">
+          <div className="flex-1 text-center py-4 border-b-2 border-blue-500 font-bold">
+            Posts
+          </div>
+          <div className="flex-1 text-center py-4 text-textGray">
+            Replies
+          </div>
+          <div className="flex-1 text-center py-4 text-textGray">
+            Media
+          </div>
+          <div className="flex-1 text-center py-4 text-textGray">
+            Likes
+          </div>
+        </div>
+      </div>
+      
+      {/* Posts */}
+      <div className="divide-y divide-borderGray">
+        {posts.length === 0 ? (
+          <div className="py-10 text-center">
+            <div className="mb-4">
+              <Image 
+                path="/general/empty-posts.svg" 
+                alt="No posts" 
+                w={120} 
+                h={120} 
+                className="mx-auto opacity-50" 
+              />
+            </div>
+            <h2 className="text-lg font-bold mb-1">No posts yet</h2>
+            <p className="text-gray-500 text-sm">
+              When this user posts, their posts will show up here.
+            </p>
+          </div>
+        ) : (
+          posts.map(post => (
+            <div key={post.id}>
+              <Post post={post} currentUser={user} />
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
